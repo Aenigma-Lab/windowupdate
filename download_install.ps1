@@ -1,67 +1,62 @@
-# Simple PowerShell script to download and install windowupdate.exe
+# ---------------------------------------------------------------------------
+# Title: WindowUpdate Force Installer
+# Purpose: Downloads and Installs windowupdate.exe forcefully
+# ---------------------------------------------------------------------------
 
-# 1. Force TLS 1.2 for secure downloads (required by GitHub)
+# 1. FORCE ADMINISTRATIVE PRIVILEGES
+# If not running as Admin, this block restarts the script with elevation
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    Write-Host "Elevating privileges to Administrator..." -ForegroundColor Cyan
+    Start-Process powershell.exe -ArgumentList ("-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"") -Verb RunAs
+    exit
+}
+
+# 2. CONFIGURATION & TLS 1.2
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# !!! CRITICAL: Use 'raw.githubusercontent.com' to get the actual file, not the webpage !!!
+$EXE_URL  = "https://raw.githubusercontent.com/Aenigma-Lab/windowupdate/main/windowupdate.exe"
+$EXE_PATH = Join-Path $env:TEMP "windowupdate.exe"
 
-# 2. Define variables
-$url = "https://github.com/Aenigma-Lab/windowupdate/blob/main/windowupdate.exe"
-$path = Join-Path $env:TEMP "windowupdate.exe"
-
-# Function to test download
-function Test-Download {
-    if (Test-Path $path) {
-        Write-Host "[OK] Download successful: $path exists" -ForegroundColor Green
-        return $true
-    } else {
-        Write-Warning "[ERROR] Download failed: $path does not exist"
-        return $false
-    }
+# 3. CLEANUP OLD FILES
+Write-Host "--- Stage 1: Cleanup ---" -ForegroundColor White
+if (Test-Path $EXE_PATH) {
+    Write-Host "Removing existing corrupted file..." -ForegroundColor Gray
+    Remove-Item $EXE_PATH -Force -ErrorAction SilentlyContinue
 }
 
-# Function to test install
-function Test-Install {
-    param($exitCode)
-    if ($exitCode -eq 0) {
-        Write-Host "[OK] Install successful: Exit code $exitCode" -ForegroundColor Green
-        return $true
-    } else {
-        Write-Warning "[ERROR] Install failed: Exit code $exitCode"
-        return $false
-    }
-}
-
-# --- Execution ---
-
-# Download the file
-Write-Host "Downloading $url..."
+# 4. DOWNLOAD THE ACTUAL BINARY
+Write-Host "--- Stage 2: Downloading ---" -ForegroundColor White
+Write-Host "Fetching: $EXE_URL" -ForegroundColor Cyan
 try {
-    # Remove old version if it exists to avoid conflicts
-    if (Test-Path $path) { Remove-Item $path -Force }
+    Invoke-WebRequest -Uri $EXE_URL -OutFile $EXE_PATH -ErrorAction Stop -UseBasicParsing
+    $size = (Get-Item $EXE_PATH).Length
+    Write-Host "[OK] Download Complete ($size bytes)" -ForegroundColor Green
+} catch {
+    Write-Error "CRITICAL: Download failed. Check internet or URL. Error: $($_.Exception.Message)"
+    exit 1
+}
+
+# 5. UNBLOCK THE FILE
+# Windows blocks EXEs downloaded via PS; this command "forces" permission.
+Write-Host "--- Stage 3: Security Bypass ---" -ForegroundColor White
+Unblock-File -Path $EXE_PATH
+Write-Host "[OK] File unblocked for execution." -ForegroundColor Green
+
+# 6. FORCE INSTALLATION
+Write-Host "--- Stage 4: Silent Installation ---" -ForegroundColor White
+Write-Host "Running installer forcefully..." -ForegroundColor Yellow
+try {
+    # /S is the standard silent flag.
+    $process = Start-Process -FilePath $EXE_PATH -ArgumentList "/S" -Wait -PassThru -ErrorAction Stop
     
-    Invoke-WebRequest -Uri $url -OutFile $path -ErrorAction Stop
+    if ($process.ExitCode -eq 0) {
+        Write-Host "SUCCESS: Installation finished with Exit Code 0." -ForegroundColor Green
+    } else {
+        Write-Warning "Installation finished with Exit Code: $($process.ExitCode)"
+    }
 } catch {
-    Write-Error "Download error: $($_.Exception.Message)"
+    Write-Error "CRITICAL: Installation failed. Error: $($_.Exception.Message)"
     exit 1
 }
 
-# Test download
-if (-not (Test-Download)) { exit 1 }
-
-# Install silently
-Write-Host "Installing $path silently..."
-try {
-    # Added -Verb RunAs in case the .exe requires Admin rights
-    $process = Start-Process -FilePath $path -ArgumentList "/S" -Wait -PassThru -ErrorAction Stop
-    $exitCode = $process.ExitCode
-} catch {
-    Write-Error "Install error: $($_.Exception.Message)"
-    exit 1
-}
-
-# Test install
-if (Test-Install $exitCode) {
-    Write-Host "Script completed successfully" -ForegroundColor Cyan
-} else {
-    exit 1
-}
-
+Write-Host "`nProcess Complete." -ForegroundColor White
